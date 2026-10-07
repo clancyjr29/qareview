@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>{{ ds.name }} - written feedback</h1>
+<p><a href="/datasets/{{ ds.id }}">&larr; back to dataset</a></p>
+{% if feedback %}
+  {% for f in feedback %}<pre class="feedback">{{ f }}</pre>{% endfor %}
+{% else %}
+<p class="muted">No flagged rows - nothing to feed back. Nice.</p>
+{% endif %}
+{% endblock %}

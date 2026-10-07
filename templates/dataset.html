@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>{{ ds.name }}</h1>
+
+<div class="cards">
+  <div class="card"><div class="num">{{ stats.total_rows or 0 }}</div><div class="lbl">Rows</div></div>
+  <div class="card"><div class="num">{{ stats.flagged_rows or 0 }}</div><div class="lbl">Flagged</div></div>
+  <div class="card"><div class="num">{{ stats.pass_rate or 0 }}%</div><div class="lbl">Pass rate</div></div>
+  <div class="card"><div class="num">{{ stats.issues_by_severity.get('critical', 0) }}</div><div class="lbl">Critical issues</div></div>
+</div>
+
+<p>
+  <a class="btn" href="/datasets/{{ ds.id }}/feedback">Written feedback</a>
+  <a class="btn secondary" href="/datasets/{{ ds.id }}/export">Export CSV</a>
+</p>
+
+{% if escalations %}
+<h2>Escalations</h2>
+{% for e in escalations %}
+<div class="esc"><strong>{{ e.rule_id }}</strong> &middot; {{ e.occurrences }}
+occurrences ({{ e.pct_of_dataset }}%)
+<div>{{ e.recommendation }}</div></div>
+{% endfor %}
+{% endif %}
+
+<h2>Rows</h2>
+<div class="filters">
+  <a href="/datasets/{{ ds.id }}">All</a>
+  <a href="/datasets/{{ ds.id }}?status=flagged">Flagged only</a>
+  {% for rule in rules_seen %}
+    <a href="/datasets/{{ ds.id }}?rule={{ rule }}">rule: {{ rule }}</a>
+  {% endfor %}
+</div>
+
+{% if rows %}
+<table>
+  <tr><th>Row</th><th>Status</th><th>Issues</th></tr>
+  {% for r in rows %}
+  <tr>
+    <td>{{ r.row_num }}</td>
+    <td><span class="pill {{ r.status }}">{{ r.status }}</span></td>
+    <td>
+      {% if r.ai_verdict %}
+        <div class="ai-verdict ai-{{ r.ai_verdict }}">
+          AI judgment: {{ r.ai_verdict }}{% if r.ai_rationale %}
+          &mdash; {{ r.ai_rationale }}{% endif %}
+        </div>
+      {% endif %}
+      {% if r.issues %}
+        {% for i in r.issues %}
+        <div class="issue">
+          <span class="sev-{{ i.severity }}">[{{ i.severity }}]</span>
+          <strong>{{ i.rule_id }}</strong>: {{ i.message }}<br>
+          <span class="res">Resolution: {{ i.resolution }}</span>
+          <details><summary>rationale</summary>{{ i.rationale }}</details>
+        </div>
+        {% endfor %}
+      {% else %} <span class="muted">-</span>{% endif %}
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}
+<p class="muted">No rows match the filter.</p>
+{% endif %}
+{% endblock %}

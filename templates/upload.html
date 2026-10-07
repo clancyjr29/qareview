@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Upload a dataset</h1>
+<div class="panel">
+  <form method="post" enctype="multipart/form-data">
+    <label>Dataset name</label><br>
+    <input type="text" name="name" placeholder="e.g. Task outputs batch 14">
+    <br><label>Rubric</label><br>
+    <select name="rubric">
+      {% for r in rubrics %}<option value="{{ r }}">{{ r }}</option>{% endfor %}
+    </select>
+    <br><label>CSV file</label><br>
+    <input type="file" name="csv_file" accept=".csv">
+    <br><label>...or paste CSV text</label><br>
+    <textarea name="csv_text" placeholder="id,task_output,status,score&#10;1,&quot;Good work&quot;,pass,92"></textarea>
+    <br><label style="font-size:14px">
+      <input type="checkbox" name="use_ai" value="1" style="width:auto">
+      Run AI judgment on flagged rows (needs QA_LLM_API_KEY, or a local
+      endpoint via QA_LLM_BASE_URL)</label><br><br>
+    <button class="btn" type="submit">Upload &amp; review</button>
+  </form>
+</div>
+<p class="muted">Every row is checked against the rubric on upload; flagged
+rows, escalations, and written feedback are generated automatically.</p>
+{% endblock %}

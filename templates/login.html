@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="panel">
+  <h1>Sign in / register</h1>
+  <p class="muted">Just a username. New usernames are registered automatically
+     and get an API key for the JSON API.</p>
+  <form method="post">
+    <input type="text" name="username" placeholder="username" autofocus>
+    <button class="btn" type="submit">Enter</button>
+  </form>
+</div>
+{% endblock %}

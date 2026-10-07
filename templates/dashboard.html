@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Dashboard</h1>
+
+<h2>Datasets</h2>
+{% if datasets %}
+<table>
+  <tr><th>Name</th><th>Rows</th><th>Flagged</th><th></th></tr>
+  {% for d in datasets %}
+  <tr>
+    <td>{{ d.name }}</td>
+    <td>{{ d.total or 0 }}</td>
+    <td>{{ d.flagged or 0 }}</td>
+    <td><a href="/datasets/{{ d.id }}">Open</a></td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}
+<p class="muted">No datasets yet. <a href="/upload">Upload one</a>.</p>
+{% endif %}
+
+<h2>Escalations (systemic patterns)</h2>
+{% if escalations %}
+  {% for e in escalations %}
+  <div class="esc">
+    <strong>{{ e.dataset }}</strong> &middot; rule <strong>{{ e.rule_id }}</strong>
+    &middot; {{ e.occurrences }} occurrences ({{ e.pct_of_dataset }}%)
+    <div>{{ e.recommendation }}</div>
+  </div>
+  {% endfor %}
+{% else %}
+<p class="muted">No recurring issues crossed the escalation threshold.</p>
+{% endif %}
+{% endblock %}

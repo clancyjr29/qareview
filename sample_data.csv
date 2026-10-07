@@ -1,0 +1,13 @@
+task_id,task_output,status,score,failure_reason
+T001,"Summarized the document accurately with 5 bullet points.",pass,95,
+T002,"",fail,20,"No output was produced by the worker."
+T003,"Followed the guideline but missed the citation format.",needs_review,70,
+T004,"Great summary with citations and correct format.",pass,98,
+T005,"Output deviates from template: used paragraphs instead of bullets.",fail,45,
+T006,"",fail,10,
+T007,"Accurate and complete.",pass,93,
+T008,"Used the wrong rubric scale (score is 150).",pass,150,
+T009,"Incomplete: only covered 2 of 6 required sections.",fail,55,"Skipped sections 3-6."
+T010,"Complete, accurate, well-formatted.",pass,90,
+T011,"Duplicate of T001.",pass,95,
+T012,"",fail,5,"Model timed out during generation."
