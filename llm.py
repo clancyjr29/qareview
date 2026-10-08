@@ -122,3 +122,45 @@ def adjudicate(flagged_rows, rubric, batch_size=8, max_rows=50):
         except (urllib.error.URLError, ValueError, KeyError, json.JSONDecodeError):
             continue  # a failed batch is non-fatal; rows keep rule verdicts
     return results
+
+
+def suggest_fixes(flagged_rows, rubric, batch_size=8, max_rows=50):
+    """Ask the LLM for corrected values for flagged fields.
+
+    flagged_rows: [{"row_num", "row", "flagged_fields": [..]}, ...]
+    Returns {row_num: {field: corrected_value}}.
+    """
+    results = {}
+    todo = flagged_rows[:max_rows]
+    system = (
+        "You are a data-repair specialist. For each flagged row, propose "
+        "corrected values for the flagged fields ONLY. Make the minimal "
+        "change that resolves the flag; preserve the original type and "
+        "formatting style. Do not invent substantive content when it "
+        "cannot be reasonably inferred - omit that field instead. Reply "
+        "with ONLY a JSON array, no prose, no code fences. Each element: "
+        "{\"row_num\": <int>, \"corrections\": "
+        "{\"<field>\": <new value>, ...}}.")
+    for i in range(0, len(todo), batch_size):
+        chunk = todo[i:i + batch_size]
+        payload = {
+            "model": MODEL,
+            "temperature": 0,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user",
+                 "content": "Rules (rubric):\n" + _rule_summary(rubric) +
+                            "\n\nRows to correct:\n" +
+                            json.dumps(chunk, default=str)}]}
+        try:
+            content = _post(payload)
+            for item in _extract_json_array(content):
+                num = item.get("row_num")
+                corr = item.get("corrections")
+                if num in {r["row_num"] for r in chunk} \
+                        and isinstance(corr, dict):
+                    results[num] = {str(k): v for k, v in corr.items()}
+        except (urllib.error.URLError, ValueError, KeyError,
+                json.JSONDecodeError):
+            continue  # non-fatal; unfixed rows keep their values
+    return results

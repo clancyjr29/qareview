@@ -9,6 +9,7 @@ from flask import (Flask, flash, g, jsonify, redirect, render_template,
 
 import db
 import engine
+import fixer
 import llm
 
 app = Flask(__name__)
@@ -158,6 +159,94 @@ def run_review(dataset_id, rubric):
     return review_id, result
 
 
+def dataset_rows_and_issues(dataset_id):
+    """Latest review's rows: [(row_num, data, issues), ...] in order."""
+    conn = db.get_db()
+    review = conn.execute(
+        "SELECT id FROM reviews WHERE dataset_id=? "
+        "ORDER BY created_at DESC LIMIT 1", (dataset_id,)).fetchone()
+    if not review:
+        conn.close()
+        return None
+    rows = conn.execute(
+        "SELECT row_num, data, issues FROM rows WHERE review_id=? "
+        "ORDER BY row_num", (review["id"],)).fetchall()
+    conn.close()
+    return [(r["row_num"], json.loads(r["data"]),
+             json.loads(r["issues"])) for r in rows]
+
+
+def dataset_rubric(ds):
+    """Resolve the rubric used by a dataset (by stored name, else first)."""
+    rubrics = load_default_rubrics()
+    keys = ds.keys()
+    name = ds["rubric_name"] if "rubric_name" in keys else None
+    if name and name in rubrics:
+        return rubrics[name]
+    return rubrics[sorted(rubrics)[0]] if rubrics else None
+
+
+def apply_fixes(dataset_id, use_ai=False, options=None):
+    """Fix all flagged issues in a dataset, creating a corrected copy.
+
+    Returns (new_dataset_id, fix_result).
+    """
+    user = user_or_none()
+    conn = db.get_db()
+    ds = conn.execute("SELECT * FROM datasets WHERE id=? AND user_id=?",
+                      (dataset_id, user["id"])).fetchone()
+    conn.close()
+    if not ds:
+        raise ValueError("dataset not found")
+    rubric = dataset_rubric(ds)
+    if not rubric:
+        raise ValueError("no rubric available")
+
+    triplets = dataset_rows_and_issues(dataset_id)
+    if not triplets:
+        raise ValueError("no reviewed rows")
+    rows = [t[1] for t in triplets]
+    issues_by_row = {t[0]: t[2] for t in triplets if t[2]}
+
+    opts = {"trim": True, "clamp": True, "drop_duplicates": True}
+    if options:
+        opts.update(options)
+    ai_fixer = llm.suggest_fixes if (use_ai and llm.available()) else None
+    result = fixer.fix_dataset(rows, issues_by_row, rubric, options=opts,
+                               ai_fixer=ai_fixer, engine_module=engine)
+
+    # store corrected copy as a new dataset
+    conn = db.get_db()
+    new_id = db.new_id()
+    conn.execute(
+        "INSERT INTO datasets (id, user_id, name, rubric_id, rubric_name, "
+        "source_id, created_at) VALUES (?,?,?,?,?,?,?)",
+        (new_id, user["id"], ds["name"] + " (fixed)", None,
+         ds["rubric_name"], ds["id"], db.now()))
+    review_id = db.new_id()
+    conn.execute(
+        "INSERT INTO reviews (id, dataset_id, rubric_id, stats, "
+        "escalations, feedback, created_at) VALUES (?,?,?,?,?,?,?)",
+        (review_id, new_id, None, json.dumps({}), json.dumps([]),
+         json.dumps([]), db.now()))
+    conn.executemany(
+        "INSERT INTO rows (id, review_id, row_num, status, data, issues) "
+        "VALUES (?,?,?,?,?,?)",
+        [(db.new_id(), review_id, i, "pending", json.dumps(r), "[]")
+         for i, r in enumerate(result["rows"], start=1)])
+    conn.executemany(
+        "INSERT INTO fixes (id, dataset_id, row_num, field, old_value, "
+        "new_value, method, rule_id, created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+        [(db.new_id(), new_id, e["row_num"], e["field"], e["old"],
+          e["new"], e["method"], e["rule_id"], db.now())
+         for e in result["fix_log"]])
+    conn.commit()
+    conn.close()
+
+    run_review(new_id, rubric)
+    return new_id, result
+
+
 def get_latest_review(dataset_id):
     conn = db.get_db()
     review = conn.execute(
@@ -227,8 +316,9 @@ def upload():
         conn = db.get_db()
         ds_id = db.new_id()
         conn.execute(
-            "INSERT INTO datasets (id, user_id, name, rubric_id, created_at) "
-            "VALUES (?,?,?,?,?)", (ds_id, user["id"], name, None, db.now()))
+            "INSERT INTO datasets (id, user_id, name, rubric_id, rubric_name,"
+            " created_at) VALUES (?,?,?,?,?,?)",
+            (ds_id, user["id"], name, None, rubric_name, db.now()))
         review_id = db.new_id()
         conn.execute(
             "INSERT INTO reviews (id, dataset_id, rubric_id, stats, "
@@ -273,6 +363,20 @@ def dataset(dataset_id):
     f_sev = request.args.get("severity")
     f_status = request.args.get("status")
 
+    conn = db.get_db()
+    fixes = conn.execute(
+        "SELECT * FROM fixes WHERE dataset_id=? ORDER BY row_num, field",
+        (dataset_id,)).fetchall() if ds else []
+    source = conn.execute(
+        "SELECT name FROM datasets WHERE id=?",
+        (ds["source_id"],)).fetchone() if "source_id" in ds.keys() \
+        and ds["source_id"] else None
+    conn.close()
+    fix_rows = [{"row_num": f["row_num"], "field": f["field"],
+                 "old": f["old_value"], "new": f["new_value"],
+                 "method": f["method"], "rule_id": f["rule_id"]}
+                for f in fixes]
+
     out = []
     rules_seen = set()
     for r in rows:
@@ -297,7 +401,10 @@ def dataset(dataset_id):
                            feedback=json.loads(review["feedback"])
                            if review else [],
                            escalations=json.loads(review["escalations"])
-                           if review else [])
+                           if review else [],
+                           fix_rows=fix_rows,
+                           source_name=source["name"] if source else None,
+                           ai_available=llm.available())
 
 
 @app.route("/datasets/<dataset_id>/feedback")
@@ -340,6 +447,58 @@ def export(dataset_id):
              f"attachment; filename={ds['name']}-review.csv"})
 
 
+@app.route("/datasets/<dataset_id>/fix", methods=["POST"])
+def fix_route(dataset_id):
+    use_ai = bool(request.form.get("use_ai"))
+    # checkboxes: present = on, absent = off (rendered checked by default)
+    options = {"trim": bool(request.form.get("trim")),
+               "clamp": bool(request.form.get("clamp")),
+               "drop_duplicates": bool(request.form.get("drop_duplicates"))}
+    try:
+        new_id, result = apply_fixes(dataset_id, use_ai=use_ai,
+                                    options=options)
+    except ValueError as e:
+        flash(f"Cannot fix this dataset: {e}")
+        return redirect(url_for("dataset", dataset_id=dataset_id))
+    s = result["summary"]
+    flash(f"Fixed {s['changes_made']} issue(s) across {s['rows_changed']} "
+          f"row(s); {s['rows_dropped']} duplicate row(s) dropped; "
+          f"{s['still_flagged']} row(s) still flagged after fixes.")
+    return redirect(url_for("dataset", dataset_id=new_id))
+
+
+@app.route("/datasets/<dataset_id>/export-data")
+def export_data(dataset_id):
+    """Raw CSV of the dataset's (corrected) data."""
+    user = user_or_none()
+    conn = db.get_db()
+    ds = conn.execute("SELECT * FROM datasets WHERE id=? AND user_id=?",
+                      (dataset_id, user["id"])).fetchone()
+    review = get_latest_review(dataset_id) if ds else None
+    rows = conn.execute(
+        "SELECT row_num, data FROM rows WHERE review_id=? ORDER BY row_num",
+        (review["id"],)).fetchall() if review else []
+    conn.close()
+    if not rows:
+        flash("Nothing to export.")
+        return redirect(url_for("dataset", dataset_id=dataset_id))
+    data = [json.loads(r["data"]) for r in rows]
+    fieldnames = []
+    for d in data:
+        for k in d:
+            if k not in fieldnames:
+                fieldnames.append(k)
+    si = io.StringIO()
+    writer = csv.DictWriter(si, fieldnames=fieldnames, restval="")
+    writer.writeheader()
+    for d in data:
+        writer.writerow(d)
+    return (si.getvalue(), 200,
+            {"Content-Type": "text/csv",
+             "Content-Disposition":
+             f"attachment; filename={ds['name']}-data.csv"})
+
+
 # ---------- JSON API (for programmatic use) ----------
 
 @app.route("/api/datasets/<dataset_id>/issues")
@@ -363,6 +522,22 @@ def api_issues(dataset_id):
                   "issues": json.loads(r["issues"])} for r in rows
                  if r["status"] == "flagged"],
     })
+
+
+@app.route("/api/datasets/<dataset_id>/fix", methods=["POST"])
+def api_fix(dataset_id):
+    """Fix all flagged issues; creates a corrected copy dataset."""
+    body = request.get_json(force=True, silent=True) or {}
+    try:
+        new_id, result = apply_fixes(
+            dataset_id, use_ai=bool(body.get("use_ai")),
+            options=body.get("options") or {})
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 404
+    return jsonify({"fixed_dataset_id": new_id,
+                    "summary": result["summary"],
+                    "fix_log": result["fix_log"],
+                    "ai_available": llm.available()})
 
 
 @app.route("/api/review", methods=["POST"])

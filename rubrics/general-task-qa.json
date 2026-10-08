@@ -5,7 +5,10 @@
     {
       "id": "required_fields",
       "type": "required_fields",
-      "fields": ["task_id", "task_output"],
+      "fields": [
+        "task_id",
+        "task_output"
+      ],
       "severity": "high"
     },
     {
@@ -32,15 +35,34 @@
       "id": "status_allowed",
       "type": "allowed_values",
       "field": "status",
-      "values": ["pass", "fail", "needs_review"],
-      "severity": "high"
+      "values": [
+        "pass",
+        "fail",
+        "needs_review"
+      ],
+      "severity": "high",
+      "fixes": {
+        "map": {
+          "passed": "pass",
+          "failed": "fail",
+          "completed": "pass"
+        }
+      }
     },
     {
       "id": "failure_needs_reason",
       "type": "cross_field",
-      "if": { "field": "status", "equals": "fail" },
-      "then_required": ["failure_reason"],
-      "severity": "medium"
+      "if": {
+        "field": "status",
+        "equals": "fail"
+      },
+      "then_required": [
+        "failure_reason"
+      ],
+      "severity": "medium",
+      "fixes": {
+        "default": "No failure reason documented."
+      }
     }
   ],
   "escalation": {

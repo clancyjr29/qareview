@@ -11,8 +11,46 @@
 
 <p>
   <a class="btn" href="/datasets/{{ ds.id }}/feedback">Written feedback</a>
-  <a class="btn secondary" href="/datasets/{{ ds.id }}/export">Export CSV</a>
+  <a class="btn secondary" href="/datasets/{{ ds.id }}/export">Export review CSV</a>
+  <a class="btn secondary" href="/datasets/{{ ds.id }}/export-data">Export data CSV</a>
 </p>
+
+{% if source_name %}
+<p class="muted">Auto-fixed copy of <strong>{{ source_name }}</strong>.</p>
+{% endif %}
+
+{% if stats.flagged_rows %}
+<div class="fix-panel">
+  <h2>Auto-fix flagged issues</h2>
+  <form method="post" action="/datasets/{{ ds.id }}/fix">
+    <label style="font-size:14px"><input type="checkbox" name="trim" value="1" checked style="width:auto"> trim whitespace</label>
+    <label style="font-size:14px"><input type="checkbox" name="clamp" value="1" checked style="width:auto"> clamp out-of-range numbers</label>
+    <label style="font-size:14px"><input type="checkbox" name="drop_duplicates" value="1" checked style="width:auto"> drop duplicate rows</label>
+    {% if ai_available %}
+    <label style="font-size:14px"><input type="checkbox" name="use_ai" value="1" style="width:auto"> AI-correct the rest (needs API key)</label>
+    {% endif %}
+    <p class="muted" style="font-size:13px">Creates a corrected copy of this dataset with a before/after fix log. The original is never modified.</p>
+    <button class="btn" type="submit">Fix flagged issues</button>
+  </form>
+</div>
+{% endif %}
+
+{% if fix_rows %}
+<h2>Applied fixes (before &rarr; after)</h2>
+<table>
+  <tr><th>Row</th><th>Field</th><th>Before</th><th>After</th><th>Method</th><th>Rule</th></tr>
+  {% for f in fix_rows %}
+  <tr>
+    <td>{{ f.row_num }}</td>
+    <td>{{ f.field }}</td>
+    <td class="muted">{{ f.old }}</td>
+    <td><strong>{{ f.new }}</strong></td>
+    <td>{{ f.method }}</td>
+    <td>{{ f.rule_id }}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% endif %}
 
 {% if escalations %}
 <h2>Escalations</h2>

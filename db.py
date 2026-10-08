@@ -50,6 +50,18 @@ CREATE TABLE IF NOT EXISTS rows (
     issues TEXT NOT NULL,
     FOREIGN KEY (review_id) REFERENCES reviews(id)
 );
+CREATE TABLE IF NOT EXISTS fixes (
+    id TEXT PRIMARY KEY,
+    dataset_id TEXT NOT NULL,
+    row_num INTEGER,
+    field TEXT NOT NULL,
+    old_value TEXT,
+    new_value TEXT,
+    method TEXT NOT NULL,
+    rule_id TEXT,
+    created_at REAL NOT NULL,
+    FOREIGN KEY (dataset_id) REFERENCES datasets(id)
+);
 CREATE INDEX IF NOT EXISTS idx_rows_review ON rows(review_id);
 CREATE INDEX IF NOT EXISTS idx_rows_status ON rows(review_id, status);
 """
@@ -64,12 +76,19 @@ def get_db():
 def init_db():
     conn = get_db()
     conn.executescript(SCHEMA)
-    # lightweight migration for pre-1.1 databases
-    try:
-        conn.execute("ALTER TABLE rows ADD COLUMN ai TEXT DEFAULT '{}'")
-        conn.commit()
-    except sqlite3.OperationalError:
-        pass  # column already exists
+    # lightweight migrations for older databases
+    for col in ("ai TEXT DEFAULT '{}'",):
+        try:
+            conn.execute(f"ALTER TABLE rows ADD COLUMN {col}")
+            conn.commit()
+        except sqlite3.OperationalError:
+            pass
+    for col in ("rubric_name TEXT", "source_id TEXT"):
+        try:
+            conn.execute(f"ALTER TABLE datasets ADD COLUMN {col}")
+            conn.commit()
+        except sqlite3.OperationalError:
+            pass
     conn.close()
 
 

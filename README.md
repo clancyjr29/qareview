@@ -84,6 +84,45 @@ export QA_LLM_MODEL=llama3.2
 Failure behavior is deliberate: if the LLM call fails, rows keep their
 rule-based verdicts and the review still completes.
 
+## Auto-fixing flagged datasets
+
+The app can correct flagged issues instead of just reporting them. On a
+dataset page, use the "Auto-fix flagged issues" panel:
+
+- **Safe deterministic fixes** (on by default): trim stray whitespace,
+  clamp out-of-range numbers into the rubric's min/max, drop duplicate
+  rows, case-normalize or map allowed values, and fill configured defaults.
+- **AI corrections** (checkbox, needs an API key): anything still flagged
+  is sent to the LLM, which proposes minimal corrections for the flagged
+  fields only.
+
+Fixing never modifies the original dataset: it creates a `<name> (fixed)`
+copy, re-reviews it against the same rubric, and records a before/after
+fix log (row, field, old value, new value, method, rule). "Export data CSV"
+on the fixed dataset gives you the clean corrected file.
+
+Rubric hooks: rules accept an optional `"fixes"` object:
+
+```json
+{"id": "failure_needs_reason", "type": "cross_field",
+ "if": {"field": "status", "equals": "fail"},
+ "then_required": ["failure_reason"],
+ "fixes": {"default": "No failure reason documented."}}
+```
+
+and `allowed_values` rules accept `"fixes": {"map": {"passed": "pass"}}`
+to auto-correct known typos.
+
+API equivalent:
+
+```bash
+curl -X POST -H "X-API-Key: <key>" -H "Content-Type: application/json" \
+  -d '{"use_ai": true, "options": {"clamp": true}}' \
+  http://localhost:5000/api/datasets/<dataset_id>/fix
+```
+
+Returns the new fixed dataset id, a change summary, and the full fix log.
+
 ## JSON API
 
 Log in once via the web UI to create your user, then use the key from the
