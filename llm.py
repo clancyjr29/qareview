@@ -164,3 +164,35 @@ def suggest_fixes(flagged_rows, rubric, batch_size=8, max_rows=50):
                 json.JSONDecodeError):
             continue  # non-fatal; unfixed rows keep their values
     return results
+
+
+def write_narrative(analysis, dataset_name):
+    """Executive-summary Markdown for an analysis. '' if unavailable."""
+    if not available():
+        return ""
+    payload = {
+        "model": MODEL,
+        "temperature": 0,
+        "messages": [
+            {"role": "system",
+             "content": (
+                 "You are a senior data-quality analyst. Write a concise "
+                 "executive summary in Markdown for a non-technical "
+                 "reviewer: overall data health, the biggest drivers of "
+                 "quality issues, and the 2-3 most valuable next actions. "
+                 "Use short paragraphs and bullets. Reference concrete "
+                 "numbers from the analysis. No code fences. Max 250 "
+                 "words.")},
+            {"role": "user",
+             "content": "Dataset: " + dataset_name +
+                        "\n\nDataset analysis JSON:\n" +
+                        json.dumps(analysis, default=str)}]}
+    try:
+        text = _post(payload).strip()
+        # tolerate models that wrap in code fences anyway
+        if text.startswith("```"):
+            text = text.strip("`").lstrip("markdown").strip()
+        return text
+    except (urllib.error.URLError, ValueError, KeyError,
+            json.JSONDecodeError):
+        return ""

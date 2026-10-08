@@ -123,6 +123,30 @@ curl -X POST -H "X-API-Key: <key>" -H "Content-Type: application/json" \
 
 Returns the new fixed dataset id, a change summary, and the full fix log.
 
+## Data analysis
+
+Every dataset has an **Analysis** page (button on the dataset page) that
+turns the data into something usable:
+
+- **Quality score (0-100)** - pass rate minus severity-weighted penalties,
+  so critical issues hurt more than minor ones. The formula is in
+  `analyzer.py` and shown on the page.
+- **Column profiles** - type inference (numeric/categorical/text),
+  missingness, distinct counts, min/max/mean/median, outliers, top values.
+- **Breakdowns** - flag rate by group ("rows with status=fail get flagged
+  80% of the time") and average-of-numeric by group (e.g. average score
+  per worker).
+- **Plain-language insights** - error concentration, high-missingness
+  columns, constant columns, outliers.
+- **AI executive summary** (optional, one call, only when you click the
+  button) - a written overview with recommended next actions.
+- **Downloadable report** - one Markdown file combining the score,
+  narrative, insights, column profiles, breakdowns, escalations and
+  feedback. Shareable as-is.
+
+API: `GET /api/datasets/<id>/analysis` (add `?ai=1` for the narrative).
+Report: `GET /datasets/<id>/report` (add `?ai=1`).
+
 ## JSON API
 
 Log in once via the web UI to create your user, then use the key from the

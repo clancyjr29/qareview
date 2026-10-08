@@ -7,10 +7,12 @@ import os
 from flask import (Flask, flash, g, jsonify, redirect, render_template,
                    request, session, url_for)
 
+import analyzer
 import db
 import engine
 import fixer
 import llm
+import re
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("QAREVIEW_SECRET", "change-me-in-production")
@@ -54,6 +56,33 @@ def require_login():
 
 def user_or_none():
     return api_user() or current_user()
+
+
+@app.template_filter("mini_md")
+def mini_md(text):
+    """Tiny Markdown renderer for AI narratives (escape first)."""
+    from markupsafe import Markup
+    if not text:
+        return Markup("")
+    esc = (str(text).replace("&", "&amp;").replace("<", "&lt;")
+           .replace(">", "&gt;"))
+    esc = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", esc)
+    out = []
+    for ln in esc.split("\n"):
+        s = ln.strip()
+        if s.startswith("### "):
+            out.append(f"<h4>{s[4:]}</h4>")
+        elif s.startswith("## "):
+            out.append(f"<h3>{s[3:]}</h3>")
+        elif s.startswith("# "):
+            out.append(f"<h3>{s[2:]}</h3>")
+        elif s.startswith("- "):
+            out.append(f"<li>{s[2:]}</li>")
+        elif not s:
+            continue
+        else:
+            out.append(f"<p>{s}</p>")
+    return Markup("".join(out))
 
 
 @app.route("/login", methods=["GET", "POST"])
@@ -499,6 +528,66 @@ def export_data(dataset_id):
              f"attachment; filename={ds['name']}-data.csv"})
 
 
+def dataset_analysis(dataset_id):
+    """Compute the full analysis for a dataset (no AI)."""
+    user = user_or_none()
+    conn = db.get_db()
+    ds = conn.execute("SELECT * FROM datasets WHERE id=? AND user_id=?",
+                      (dataset_id, user["id"])).fetchone()
+    conn.close()
+    if not ds:
+        return None
+    triplets = dataset_rows_and_issues(dataset_id) or []
+    rows = [t[1] for t in triplets]
+    issues_by_row = {t[0]: t[2] for t in triplets if t[2]}
+    review = get_latest_review(dataset_id)
+    stats = json.loads(review["stats"]) if review else {
+        "total_rows": len(rows), "flagged_rows": 0, "pass_rate": 100}
+    analysis = analyzer.analyze(rows, stats, issues_by_row)
+    return ds, analysis, stats, review
+
+
+@app.route("/datasets/<dataset_id>/analysis")
+def dataset_analysis_route(dataset_id):
+    got = dataset_analysis(dataset_id)
+    if not got:
+        flash("Dataset not found.")
+        return redirect(url_for("dashboard"))
+    ds, analysis, stats, review = got
+    narrative = ""
+    want_ai = request.args.get("ai") == "1"
+    if want_ai and llm.available():
+        narrative = llm.write_narrative(analysis, ds["name"])
+    elif want_ai and not llm.available():
+        flash("AI summary needs QA_LLM_API_KEY set in the environment.")
+    return render_template("analysis.html", ds=ds, analysis=analysis,
+                           stats=stats, narrative=narrative,
+                           ai_available=llm.available())
+
+
+@app.route("/datasets/<dataset_id>/report")
+def dataset_report(dataset_id):
+    """Downloadable Markdown report."""
+    got = dataset_analysis(dataset_id)
+    if not got:
+        flash("Dataset not found.")
+        return redirect(url_for("dashboard"))
+    ds, analysis, stats, review = got
+    narrative = (llm.write_narrative(analysis, ds["name"])
+                 if request.args.get("ai") == "1" and llm.available()
+                 else "")
+    rubric_name = ds["rubric_name"] if "rubric_name" in ds.keys() \
+        else "default"
+    md = analyzer.build_markdown_report(
+        ds["name"], rubric_name or "default", analysis, stats,
+        json.loads(review["escalations"]) if review else [],
+        json.loads(review["feedback"]) if review else [],
+        narrative=narrative)
+    return (md, 200, {"Content-Type": "text/markdown; charset=utf-8",
+                      "Content-Disposition":
+                      f"attachment; filename={ds['name']}-report.md"})
+
+
 # ---------- JSON API (for programmatic use) ----------
 
 @app.route("/api/datasets/<dataset_id>/issues")
@@ -522,6 +611,18 @@ def api_issues(dataset_id):
                   "issues": json.loads(r["issues"])} for r in rows
                  if r["status"] == "flagged"],
     })
+
+
+@app.route("/api/datasets/<dataset_id>/analysis")
+def api_analysis(dataset_id):
+    """Full analysis as JSON. Add ?ai=1 for an AI executive summary."""
+    got = dataset_analysis(dataset_id)
+    if not got:
+        return jsonify({"error": "dataset not found"}), 404
+    ds, analysis, stats, review = got
+    if request.args.get("ai") == "1" and llm.available():
+        analysis["narrative"] = llm.write_narrative(analysis, ds["name"])
+    return jsonify(analysis)
 
 
 @app.route("/api/datasets/<dataset_id>/fix", methods=["POST"])

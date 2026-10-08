@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Analysis: {{ ds.name }}</h1>
+
+<div class="cards">
+  <div class="card"><div class="num">{{ analysis.quality_score }}</div><div class="lbl">Quality score /100</div></div>
+  <div class="card"><div class="num">{{ analysis.data_shape.rows }}</div><div class="lbl">Rows</div></div>
+  <div class="card"><div class="num">{{ analysis.data_shape.columns }}</div><div class="lbl">Columns</div></div>
+  <div class="card"><div class="num">{{ stats.flagged_rows or 0 }}</div><div class="lbl">Flagged rows</div></div>
+</div>
+
+<p>
+  <a class="btn secondary" href="/datasets/{{ ds.id }}">&larr; Back to dataset</a>
+  <a class="btn" href="/datasets/{{ ds.id }}/report">Download report (.md)</a>
+  {% if ai_available %}
+    <a class="btn" href="/datasets/{{ ds.id }}/analysis?ai=1">AI executive summary</a>
+  {% endif %}
+</p>
+
+{% if narrative %}
+<h2>Executive summary</h2>
+<div class="esc">{{ narrative|mini_md }}</div>
+{% elif ai_available %}
+<p class="muted">Tip: the "AI executive summary" button generates a written
+overview of this analysis.</p>
+{% endif %}
+
+<h2>Insights</h2>
+{% for i in analysis.insights %}
+<div class="esc">{{ i }}</div>
+{% endfor %}
+
+<h2>Column profiles</h2>
+<table>
+  <tr><th>Column</th><th>Type</th><th>Missing</th><th>Distinct</th><th>Details</th></tr>
+  {% for c in analysis.columns %}
+  <tr>
+    <td><strong>{{ c.name }}</strong></td>
+    <td>{{ c.type }}</td>
+    <td>{{ c.missing_pct }}%</td>
+    <td>{{ c.distinct }}</td>
+    <td>
+      {% if c.type == "numeric" %}
+        min {{ c.min }} &middot; max {{ c.max }} &middot; mean {{ c.mean }} &middot; median {{ c.median }}
+        {% if c.outliers %}<br><span class="res">{{ c.outliers|length }} outlier(s)</span>{% endif %}
+      {% else %}
+        {% for t in c.top_values[:3] %}
+          {{ t.value }} ({{ t.pct }}%){% if not loop.last %} &middot; {% endif %}
+        {% endfor %}
+      {% endif %}
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+
+{% for t in analysis.breakdowns %}
+<h2>{{ t.title }}</h2>
+<table>
+  <tr>{% for col in t.cols %}<th>{{ col }}</th>{% endfor %}</tr>
+  {% for r in t.rows %}
+  <tr>{% for col in t.cols %}<td>{{ r[col] }}</td>{% endfor %}</tr>
+  {% endfor %}
+</table>
+{% endfor %}
+
+<p class="muted" style="font-size:13px">Programmatic access:
+<code>GET /api/datasets/{{ ds.id }}/analysis</code> (add <code>?ai=1</code> for the AI summary).</p>
+{% endblock %}
