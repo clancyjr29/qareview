@@ -172,6 +172,20 @@ GET /api/datasets/<dataset_id>/issues     (X-API-Key header)
 
 Returns stats, escalations, and all flagged rows with issue details.
 
+## Testing without API costs
+
+`mock_llm_server.py` is a tiny fake OpenAI-compatible server used by the
+test suite. Point the app at it and the AI features run without spending
+credits:
+
+```bash
+python3 mock_llm_server.py &   # serves http://127.0.0.1:5399/v1
+QA_LLM_BASE_URL=http://127.0.0.1:5399/v1 python3 app.py
+```
+
+It answers the judgment, fix, and analysis prompts with canned responses,
+so you can exercise every AI code path offline.
+
 ## Files
 
 ```
