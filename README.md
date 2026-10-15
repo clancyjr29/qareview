@@ -172,6 +172,25 @@ GET /api/datasets/<dataset_id>/issues     (X-API-Key header)
 
 Returns stats, escalations, and all flagged rows with issue details.
 
+## Command line (database manager)
+
+`cli.py` works on the same SQLite database as the web app, so data imported
+from the terminal shows up in the UI and vice versa:
+
+```bash
+python cli.py init                          # create the database
+python cli.py users add clancy              # create a user, prints API key
+python cli.py import data.csv --name "Batch 14" --user clancy
+python cli.py datasets --user clancy        # list datasets
+python cli.py analyze <dataset_id> --user clancy
+python cli.py report <dataset_id> --file report.md --user clancy
+python cli.py export <dataset_id> --file clean.csv --user clancy
+```
+
+`import` runs the full rubric review and prints flag/escalation stats;
+`analyze` prints the quality score and insights; `report` writes the
+shareable Markdown analysis; `export` dumps the dataset as CSV.
+
 ## Testing without API costs
 
 `mock_llm_server.py` is a tiny fake OpenAI-compatible server used by the
